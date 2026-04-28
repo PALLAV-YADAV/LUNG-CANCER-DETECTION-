@@ -6,3 +6,6 @@ scikit-learn
 matplotlib
 pandas
 tqdm
+streamlit
+opencv-python-headless
+pillow
