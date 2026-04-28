@@ -1,11 +1,6 @@
-tensorflow
-torch
-numpy
-opencv-python
-scikit-learn
-matplotlib
-pandas
-tqdm
 streamlit
+tensorflow==2.13
 opencv-python-headless
+numpy
 pillow
+gdown
