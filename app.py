@@ -23,18 +23,29 @@ st.write("Upload a CT image to get prediction, confidence, and Grad-CAM visualiz
 # ----------------------------
 WEIGHTS_PATH = "resnet.weights.h5"
 
-# Your Google Drive direct link
-MODEL_URL = "https://drive.google.com/uc?id=176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV"
+MODEL_URL = "https://drive.google.com/uc?export=download&id=176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV"
 
 CLASS_NAMES = ["BENIGN", "MALIGNANT", "NORMAL"]
 IMG_SIZE = 224
 
 # ----------------------------
-# Download model if not exists
+# Download model safely
 # ----------------------------
-if not os.path.exists(WEIGHTS_PATH):
-    with st.spinner("Downloading model... (first time only)"):
-        gdown.download(MODEL_URL, WEIGHTS_PATH, quiet=False)
+def download_model():
+    if not os.path.exists(WEIGHTS_PATH):
+        with st.spinner("Downloading model (first time only)... Please wait ⏳"):
+            try:
+                gdown.download(
+                    MODEL_URL,
+                    WEIGHTS_PATH,
+                    quiet=False,
+                    fuzzy=True
+                )
+            except Exception as e:
+                st.error("❌ Model download failed. Check Google Drive link permissions.")
+                st.stop()
+
+download_model()
 
 # ----------------------------
 # Load model
@@ -63,7 +74,6 @@ def load_trained_model():
 
     model = Model(inputs=base_model.input, outputs=outputs)
 
-    # Load weights
     model.load_weights(WEIGHTS_PATH)
 
     return model
@@ -145,7 +155,7 @@ st.sidebar.write("- MALIGNANT")
 st.sidebar.write("- NORMAL")
 
 # ----------------------------
-# Upload
+# Upload section
 # ----------------------------
 uploaded_file = st.file_uploader(
     "Upload a CT Scan Image",
@@ -195,7 +205,7 @@ if uploaded_file is not None:
         st.subheader("Overlay Result")
         st.image(overlay_img, use_container_width=True)
 
-    # Download option
+    # Download
     save_path = "gradcam_output.png"
     cv2.imwrite(save_path, cv2.cvtColor(overlay_img, cv2.COLOR_RGB2BGR))
 
