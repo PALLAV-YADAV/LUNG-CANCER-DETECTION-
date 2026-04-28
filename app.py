@@ -4,6 +4,7 @@ import streamlit as st
 import tensorflow as tf
 import cv2
 from PIL import Image
+import gdown
 
 # ----------------------------
 # App config
@@ -18,22 +19,25 @@ st.title("🫁 Lung Cancer Detection System (IQ-OTHNCCD)")
 st.write("Upload a CT image to get prediction, confidence, and Grad-CAM visualization.")
 
 # ----------------------------
-# Paths
+# Constants
 # ----------------------------
-BASE_DIR = r"D:\MTECH SEM2\AI LAB"
+WEIGHTS_PATH = "resnet.weights.h5"
 
-WEIGHTS_PATH = os.path.join(
-    BASE_DIR,
-    "models",
-    "IQ-OTHNCCD",
-    "resnet.weights.h5"
-)
+# Your Google Drive direct link
+MODEL_URL = "https://drive.google.com/uc?id=176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV"
 
 CLASS_NAMES = ["BENIGN", "MALIGNANT", "NORMAL"]
 IMG_SIZE = 224
 
 # ----------------------------
-# Load model (NO ERROR VERSION)
+# Download model if not exists
+# ----------------------------
+if not os.path.exists(WEIGHTS_PATH):
+    with st.spinner("Downloading model... (first time only)"):
+        gdown.download(MODEL_URL, WEIGHTS_PATH, quiet=False)
+
+# ----------------------------
+# Load model
 # ----------------------------
 @st.cache_resource
 def load_trained_model():
@@ -59,7 +63,7 @@ def load_trained_model():
 
     model = Model(inputs=base_model.input, outputs=outputs)
 
-    # Load trained weights
+    # Load weights
     model.load_weights(WEIGHTS_PATH)
 
     return model
@@ -68,7 +72,7 @@ def load_trained_model():
 model = load_trained_model()
 
 # ----------------------------
-# Helper Functions
+# Helper functions
 # ----------------------------
 def preprocess_image(pil_img):
     img = np.array(pil_img.convert("RGB"))
@@ -140,9 +144,8 @@ st.sidebar.write("- BENIGN")
 st.sidebar.write("- MALIGNANT")
 st.sidebar.write("- NORMAL")
 
-
 # ----------------------------
-# Upload Section
+# Upload
 # ----------------------------
 uploaded_file = st.file_uploader(
     "Upload a CT Scan Image",
@@ -192,8 +195,8 @@ if uploaded_file is not None:
         st.subheader("Overlay Result")
         st.image(overlay_img, use_container_width=True)
 
-    # Download
-    save_path = os.path.join(BASE_DIR, "gradcam_output.png")
+    # Download option
+    save_path = "gradcam_output.png"
     cv2.imwrite(save_path, cv2.cvtColor(overlay_img, cv2.COLOR_RGB2BGR))
 
     with open(save_path, "rb") as f:
