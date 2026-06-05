@@ -23,7 +23,7 @@ st.write("Upload a CT image to get prediction, confidence, and Grad-CAM visualiz
 # ----------------------------
 WEIGHTS_PATH = "resnet.weights.h5"
 
-MODEL_URL = "https://drive.google.com/file/d/176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV/view?usp=drive_link"
+MODEL_URL = "https://drive.google.com/file/d/176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV/view"
 
 CLASS_NAMES = ["BENIGN", "MALIGNANT", "NORMAL"]
 IMG_SIZE = 224
@@ -31,19 +31,32 @@ IMG_SIZE = 224
 # ----------------------------
 # Download model safely
 # ----------------------------
+WEIGHTS_PATH = "resnet.weights.h5"
+
+FILE_ID = "176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV"
+
 def download_model():
-    if not os.path.exists(WEIGHTS_PATH):
-        with st.spinner("Downloading model (first time only)... Please wait ⏳"):
-            try:
-                gdown.download(
-                    MODEL_URL,
-                    WEIGHTS_PATH,
-                    quiet=False,
-                    fuzzy=True
-                )
-            except Exception as e:
-                st.error("❌ Model download failed. Check Google Drive link permissions.")
-                st.stop()
+
+    if os.path.exists(WEIGHTS_PATH):
+        return
+
+    with st.spinner("Downloading model..."):
+
+        try:
+
+            url = f"https://drive.google.com/uc?id={FILE_ID}"
+
+            gdown.download(
+                url,
+                WEIGHTS_PATH,
+                quiet=False,
+                fuzzy=True
+            )
+
+        except Exception as e:
+
+            st.error(f"Download failed: {e}")
+            st.stop()
 
 download_model()
 
