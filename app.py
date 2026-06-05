@@ -98,16 +98,9 @@ def preprocess_image(pil_img):
     return img, img_array
 
 
-def get_base_model_from_full_model(full_model):
-    for layer in full_model.layers:
-        if isinstance(layer, tf.keras.Model) and layer.name == "resnet50_base":
-            return layer
-    raise ValueError("Base model not found inside the loaded model.")
-
-
 def make_gradcam_heatmap(img_array, model):
-
-    last_conv_layer = get_last_conv_layer(model)
+    # ResNet50 last conv layer
+    last_conv_layer = model.get_layer("conv5_block3_out")
 
     grad_model = tf.keras.models.Model(
         inputs=model.input,
@@ -115,33 +108,22 @@ def make_gradcam_heatmap(img_array, model):
     )
 
     with tf.GradientTape() as tape:
-
         conv_outputs, predictions = grad_model(img_array)
-
         pred_index = tf.argmax(predictions[0])
-
         loss = predictions[:, pred_index]
 
     grads = tape.gradient(loss, conv_outputs)
-
-    pooled_grads = tf.reduce_mean(
-        grads,
-        axis=(0, 1, 2)
-    )
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
 
     conv_outputs = conv_outputs[0]
+    heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
 
-    heatmap = tf.reduce_sum(
-        conv_outputs * pooled_grads,
-        axis=-1
-    )
-
-    heatmap = heatmap.numpy()
-
+    heatmap = heatmap.numpy() if hasattr(heatmap, "numpy") else heatmap
     heatmap = np.maximum(heatmap, 0)
 
-    if np.max(heatmap) != 0:
-        heatmap /= np.max(heatmap)
+    max_val = np.max(heatmap)
+    if max_val != 0:
+        heatmap /= max_val
 
     return heatmap
 
@@ -232,9 +214,3 @@ if uploaded_file is not None:
 
 else:
     st.info("Upload an image to start prediction.")
-
-
-if st.button("Show Layer Names"):
-
-    for i, layer in enumerate(model.layers):
-        st.write(i, layer.name)
