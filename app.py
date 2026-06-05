@@ -232,3 +232,9 @@ if uploaded_file is not None:
 
 else:
     st.info("Upload an image to start prediction.")
+
+
+if st.button("Show Layer Names"):
+
+    for i, layer in enumerate(model.layers):
+        st.write(i, layer.name)
