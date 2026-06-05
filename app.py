@@ -23,7 +23,7 @@ st.write("Upload a CT image to get prediction, confidence, and Grad-CAM visualiz
 # ----------------------------
 WEIGHTS_PATH = "resnet.weights.h5"
 
-MODEL_URL = "https://drive.google.com/uc?export=download&id=176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV"
+MODEL_URL = "https://drive.google.com/file/d/176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV/view?usp=drive_link"
 
 CLASS_NAMES = ["BENIGN", "MALIGNANT", "NORMAL"]
 IMG_SIZE = 224
