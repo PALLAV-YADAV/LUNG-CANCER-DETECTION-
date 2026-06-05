@@ -1,11 +1,10 @@
 import os
-import re
-import requests
 import numpy as np
 import streamlit as st
 import tensorflow as tf
 import cv2
 from PIL import Image
+import gdown
 
 # ----------------------------
 # App config
@@ -24,81 +23,34 @@ st.write("Upload a CT image to get prediction, confidence, and Grad-CAM visualiz
 # ----------------------------
 WEIGHTS_PATH = "resnet.weights.h5"
 FILE_ID = "176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV"
-DOWNLOAD_URL = f"https://drive.google.com/uc?export=download&id={FILE_ID}"
 
 CLASS_NAMES = ["BENIGN", "MALIGNANT", "NORMAL"]
 IMG_SIZE = 224
 
-
 # ----------------------------
-# Google Drive download helpers
+# Download model safely
 # ----------------------------
-def _get_confirm_token(response):
-    for key, value in response.cookies.items():
-        if key.startswith("download_warning"):
-            return value
-    return None
-
-
-def _get_filename_from_response(response, default_name):
-    content_disposition = response.headers.get("Content-Disposition", "")
-    match = re.search(r'filename="(.+)"', content_disposition)
-    if match:
-        return match.group(1)
-    return default_name
-
-
-def download_file_from_google_drive(file_id, destination):
-    session = requests.Session()
-
-    url = "https://drive.google.com/uc?export=download"
-    response = session.get(url, params={"id": file_id}, stream=True, timeout=60)
-
-    token = _get_confirm_token(response)
-    if token:
-        response = session.get(
-            url,
-            params={"id": file_id, "confirm": token},
-            stream=True,
-            timeout=60
-        )
-
-    if response.status_code != 200:
-        raise RuntimeError(f"Download failed with status code {response.status_code}")
-
-    # Detect HTML error pages from Drive
-    content_type = response.headers.get("Content-Type", "").lower()
-    if "text/html" in content_type:
-        text_snippet = response.text[:500].lower()
-        if "permission" in text_snippet or "access" in text_snippet:
-            raise RuntimeError("Google Drive file is not publicly accessible.")
-        if "quota" in text_snippet:
-            raise RuntimeError("Google Drive download quota exceeded.")
-        if "virus scan" in text_snippet or "cannot preview" in text_snippet:
-            raise RuntimeError("Google Drive returned a confirmation page instead of the file.")
-
-    tmp_path = destination + ".part"
-    with open(tmp_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=32768):
-            if chunk:
-                f.write(chunk)
-
-    os.replace(tmp_path, destination)
-
-
-def ensure_weights():
-    if os.path.exists(WEIGHTS_PATH):
+def download_model():
+    if os.path.exists(WEIGHTS_PATH) and os.path.getsize(WEIGHTS_PATH) > 0:
         return
 
     with st.spinner("Downloading model weights from Google Drive..."):
         try:
-            download_file_from_google_drive(FILE_ID, WEIGHTS_PATH)
+            gdown.download(
+                id=FILE_ID,
+                output=WEIGHTS_PATH,
+                quiet=False
+            )
+
+            if not os.path.exists(WEIGHTS_PATH) or os.path.getsize(WEIGHTS_PATH) == 0:
+                st.error("Model download failed. The file was not saved correctly.")
+                st.stop()
+
         except Exception as e:
             st.error(f"Model download failed: {e}")
             st.stop()
 
-
-ensure_weights()
+download_model()
 
 # ----------------------------
 # Model builder
@@ -205,9 +157,6 @@ st.sidebar.write("Classes:")
 st.sidebar.write("- BENIGN")
 st.sidebar.write("- MALIGNANT")
 st.sidebar.write("- NORMAL")
-
-st.sidebar.write("Weights file:")
-st.sidebar.code(WEIGHTS_PATH)
 
 # ----------------------------
 # Upload section
