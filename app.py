@@ -1,10 +1,11 @@
 import os
+import re
+import requests
 import numpy as np
 import streamlit as st
 import tensorflow as tf
 import cv2
 from PIL import Image
-import gdown
 
 # ----------------------------
 # App config
@@ -22,73 +23,113 @@ st.write("Upload a CT image to get prediction, confidence, and Grad-CAM visualiz
 # Constants
 # ----------------------------
 WEIGHTS_PATH = "resnet.weights.h5"
-
-MODEL_URL = "https://drive.google.com/file/d/176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV/view"
+FILE_ID = "176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV"
+DOWNLOAD_URL = f"https://drive.google.com/uc?export=download&id={FILE_ID}"
 
 CLASS_NAMES = ["BENIGN", "MALIGNANT", "NORMAL"]
 IMG_SIZE = 224
 
+
 # ----------------------------
-# Download model safely
+# Google Drive download helpers
 # ----------------------------
-WEIGHTS_PATH = "resnet.weights.h5"
+def _get_confirm_token(response):
+    for key, value in response.cookies.items():
+        if key.startswith("download_warning"):
+            return value
+    return None
 
-FILE_ID = "176Xk4FEV-cdC2V-kuaMXnrQDr3UQfcRV"
 
-def download_model():
+def _get_filename_from_response(response, default_name):
+    content_disposition = response.headers.get("Content-Disposition", "")
+    match = re.search(r'filename="(.+)"', content_disposition)
+    if match:
+        return match.group(1)
+    return default_name
 
+
+def download_file_from_google_drive(file_id, destination):
+    session = requests.Session()
+
+    url = "https://drive.google.com/uc?export=download"
+    response = session.get(url, params={"id": file_id}, stream=True, timeout=60)
+
+    token = _get_confirm_token(response)
+    if token:
+        response = session.get(
+            url,
+            params={"id": file_id, "confirm": token},
+            stream=True,
+            timeout=60
+        )
+
+    if response.status_code != 200:
+        raise RuntimeError(f"Download failed with status code {response.status_code}")
+
+    # Detect HTML error pages from Drive
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "text/html" in content_type:
+        text_snippet = response.text[:500].lower()
+        if "permission" in text_snippet or "access" in text_snippet:
+            raise RuntimeError("Google Drive file is not publicly accessible.")
+        if "quota" in text_snippet:
+            raise RuntimeError("Google Drive download quota exceeded.")
+        if "virus scan" in text_snippet or "cannot preview" in text_snippet:
+            raise RuntimeError("Google Drive returned a confirmation page instead of the file.")
+
+    tmp_path = destination + ".part"
+    with open(tmp_path, "wb") as f:
+        for chunk in response.iter_content(chunk_size=32768):
+            if chunk:
+                f.write(chunk)
+
+    os.replace(tmp_path, destination)
+
+
+def ensure_weights():
     if os.path.exists(WEIGHTS_PATH):
         return
 
-    with st.spinner("Downloading model..."):
-
+    with st.spinner("Downloading model weights from Google Drive..."):
         try:
-
-            url = f"https://drive.google.com/uc?id={FILE_ID}"
-
-            gdown.download(
-                url,
-                WEIGHTS_PATH,
-                quiet=False,
-                fuzzy=True
-            )
-
+            download_file_from_google_drive(FILE_ID, WEIGHTS_PATH)
         except Exception as e:
-
-            st.error(f"Download failed: {e}")
+            st.error(f"Model download failed: {e}")
             st.stop()
 
-download_model()
+
+ensure_weights()
 
 # ----------------------------
-# Load model
+# Model builder
 # ----------------------------
-@st.cache_resource
-def load_trained_model():
-
-    from tensorflow.keras.applications import ResNet50
-    from tensorflow.keras.layers import Dense, Dropout, GlobalAveragePooling2D, BatchNormalization
-    from tensorflow.keras.models import Model
-
-    base_model = ResNet50(
+def build_model():
+    base_model = tf.keras.applications.ResNet50(
         weights="imagenet",
         include_top=False,
-        input_shape=(224, 224, 3)
+        input_shape=(224, 224, 3),
+        name="resnet50_base"
     )
 
+    base_model.trainable = False
+
     x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.5)(x)
-    x = Dense(256, activation="relu")(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-    outputs = Dense(3, activation="softmax")(x)
+    x = tf.keras.layers.GlobalAveragePooling2D()(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Dropout(0.5)(x)
+    x = tf.keras.layers.Dense(256, activation="relu")(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Dropout(0.3)(x)
+    outputs = tf.keras.layers.Dense(3, activation="softmax")(x)
 
-    model = Model(inputs=base_model.input, outputs=outputs)
+    model = tf.keras.Model(inputs=base_model.input, outputs=outputs)
+    return model
 
+
+@st.cache_resource
+def load_trained_model():
+    model = build_model()
     model.load_weights(WEIGHTS_PATH)
-
     return model
 
 
@@ -105,23 +146,20 @@ def preprocess_image(pil_img):
     return img, img_array
 
 
-def find_last_conv_layer_name(model):
-    for layer in reversed(model.layers):
-        try:
-            if len(layer.output.shape) == 4:
-                return layer.name
-        except:
-            pass
-    raise ValueError("No convolutional layer found")
+def get_base_model_from_full_model(full_model):
+    for layer in full_model.layers:
+        if isinstance(layer, tf.keras.Model) and layer.name == "resnet50_base":
+            return layer
+    raise ValueError("Base model not found inside the loaded model.")
 
 
-def make_gradcam_heatmap(img_array, model):
-    last_conv_layer_name = find_last_conv_layer_name(model)
-    last_conv_layer = model.get_layer(last_conv_layer_name)
+def make_gradcam_heatmap(img_array, full_model, last_conv_layer_name="conv5_block3_out"):
+    base_model = get_base_model_from_full_model(full_model)
+    last_conv_layer = base_model.get_layer(last_conv_layer_name)
 
     grad_model = tf.keras.models.Model(
-        inputs=model.input,
-        outputs=[last_conv_layer.output, model.output]
+        inputs=full_model.inputs,
+        outputs=[last_conv_layer.output, full_model.output]
     )
 
     with tf.GradientTape() as tape:
@@ -138,8 +176,9 @@ def make_gradcam_heatmap(img_array, model):
     heatmap = heatmap.numpy() if hasattr(heatmap, "numpy") else heatmap
     heatmap = np.maximum(heatmap, 0)
 
-    if np.max(heatmap) != 0:
-        heatmap /= np.max(heatmap)
+    max_val = np.max(heatmap)
+    if max_val != 0:
+        heatmap = heatmap / max_val
 
     return heatmap
 
@@ -167,6 +206,9 @@ st.sidebar.write("- BENIGN")
 st.sidebar.write("- MALIGNANT")
 st.sidebar.write("- NORMAL")
 
+st.sidebar.write("Weights file:")
+st.sidebar.code(WEIGHTS_PATH)
+
 # ----------------------------
 # Upload section
 # ----------------------------
@@ -176,7 +218,6 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-
     pil_img = Image.open(uploaded_file)
 
     col1, col2 = st.columns(2)
@@ -204,7 +245,7 @@ if uploaded_file is not None:
 
         st.write("### Class Probabilities")
         for i, class_name in enumerate(CLASS_NAMES):
-            st.write(f"{class_name}: {preds[i]*100:.2f}%")
+            st.write(f"{class_name}: {preds[i] * 100:.2f}%")
 
     st.divider()
 
@@ -218,7 +259,6 @@ if uploaded_file is not None:
         st.subheader("Overlay Result")
         st.image(overlay_img, use_container_width=True)
 
-    # Download
     save_path = "gradcam_output.png"
     cv2.imwrite(save_path, cv2.cvtColor(overlay_img, cv2.COLOR_RGB2BGR))
 
