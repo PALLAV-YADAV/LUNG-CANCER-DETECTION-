@@ -105,32 +105,43 @@ def get_base_model_from_full_model(full_model):
     raise ValueError("Base model not found inside the loaded model.")
 
 
-def make_gradcam_heatmap(img_array, full_model, last_conv_layer_name="conv5_block3_out"):
-    base_model = get_base_model_from_full_model(full_model)
-    last_conv_layer = base_model.get_layer(last_conv_layer_name)
+def make_gradcam_heatmap(img_array, model):
+
+    last_conv_layer = get_last_conv_layer(model)
 
     grad_model = tf.keras.models.Model(
-        inputs=full_model.inputs,
-        outputs=[last_conv_layer.output, full_model.output]
+        inputs=model.input,
+        outputs=[last_conv_layer.output, model.output]
     )
 
     with tf.GradientTape() as tape:
+
         conv_outputs, predictions = grad_model(img_array)
+
         pred_index = tf.argmax(predictions[0])
+
         loss = predictions[:, pred_index]
 
     grads = tape.gradient(loss, conv_outputs)
-    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+    pooled_grads = tf.reduce_mean(
+        grads,
+        axis=(0, 1, 2)
+    )
 
     conv_outputs = conv_outputs[0]
-    heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
 
-    heatmap = heatmap.numpy() if hasattr(heatmap, "numpy") else heatmap
+    heatmap = tf.reduce_sum(
+        conv_outputs * pooled_grads,
+        axis=-1
+    )
+
+    heatmap = heatmap.numpy()
+
     heatmap = np.maximum(heatmap, 0)
 
-    max_val = np.max(heatmap)
-    if max_val != 0:
-        heatmap = heatmap / max_val
+    if np.max(heatmap) != 0:
+        heatmap /= np.max(heatmap)
 
     return heatmap
 
